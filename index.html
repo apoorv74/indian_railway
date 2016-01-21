@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<meta charset="utf-8">
+<style>
+
+.districts {
+  fill: #ccc;
+}
+
+.state-borders {
+  fill: none;
+  stroke: #fff;
+  stroke-width: 1.5px;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+}
+.district-borders {
+  fill: none;
+  stroke: #fff;
+  stroke-width: 0.5px;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+}
+
+.station-arcs {
+  display: none;
+  fill: none;
+  stroke: #000;
+}
+
+.station-cell {
+  fill: none;
+  pointer-events: all;
+}
+
+.station circle {
+  fill: steelblue;
+  stroke: #fff;
+  pointer-events: none;
+}
+
+.station:hover .station-arcs {
+  display: inline;
+}
+
+svg:not(:hover) .station-cell {
+  stroke: #000;
+  stroke-opacity: .2;
+}
+
+</style>
+<body>
+<script src="//d3js.org/d3.v3.min.js"></script>
+<script src="//d3js.org/queue.v1.min.js"></script>
+<script src="https://d3js.org/d3-voronoi.v0.3.min.js"></script>
+<script src="//d3js.org/topojson.v1.min.js"></script>
+<script>
+
+var width = 960,height = 1160;
+
+var projection = d3.geo.mercator()
+  .scale(500)
+  .translate([-100,550]) ;
+
+var path = d3.geo.path()
+    .projection(projection);
+
+var voronoi = d3.geom.voronoi()
+    .x(function(d) { return d.x; })
+    .y(function(d) { return d.y; })
+    .clipExtent([[0, 0], [width, height]]);
+
+var svg = d3.select("body").append("svg")
+    .attr("width", width)
+    .attr("height", height);
+
+queue()
+    .defer(d3.json, "india.json")
+    .defer(d3.csv, "stations.csv")
+    .defer(d3.csv, "trains.csv")
+    .await(ready);
+
+function ready(error, india, stations, trains) {
+  if (error) throw error;
+
+  var stationById = d3.map(),
+      positions = [];
+
+  stations.forEach(function(d) {
+    stationById.set(d.id_code, d);
+    d.outgoing = [];
+    d.incoming = [];
+  });
+
+  trains.forEach(function(train) {
+    var source = stationById.get(train.origin),
+        target = stationById.get(train.destination),
+        link = {source: source, target: target};
+    source.outgoing.push(link);
+    target.incoming.push(link);
+  });
+
+  stations = stations.filter(function(d) {
+    if (d.count = Math.max(d.incoming.length, d.outgoing.length)) {
+      d[0] = +d.longitude;
+      d[1] = +d.latitude;
+      var position = projection(d);
+      d.x = position[0];
+      d.y = position[1];
+      return true;
+    }
+  });
+
+  newStations = [] ;
+
+  voronoi(stations)
+      .forEach(function(d,i,j) { 
+        // console.log(d) ;
+        d.point.cell = d; 
+        newStations.push(d.point);
+    });
+
+  
+
+  svg.append("path")
+      .datum(topojson.feature(india, india.objects.india5))
+      .attr("class", "districts")
+      .attr("d", path);
+
+  svg.append("path")
+      .datum(topojson.mesh(india, india.objects.india5, function(a, b) { return a !== b; }))
+      .attr("class", "district-borders")
+      .attr("d", path);
+
+  var station = svg.append("g")
+      .attr("class", "stations")
+    .selectAll("g")
+      .data(newStations.sort(function(a, b) { return b.count - a.count; }))
+    .enter().append("g")
+      .attr("class", "station");
+      // console.log(station)
+
+  station.append("g")
+      .attr("class", "station-arcs")
+    .selectAll("path")
+      .data(function(d) { return d.outgoing; })
+    .enter().append("path")
+      .attr("d", function(d) { return path({type: "LineString", coordinates: [d.source, d.target]}); });
+
+  station.append("path")
+      .attr("class", "station-cell")
+      .attr("d", function(d) { 
+        console.log(d) ;
+        return d.cell.length ? "M" + d.cell.join("L") + "Z" : null; });
+
+
+
+  station.append("circle")
+      .attr("transform", function(d) { return "translate(" + d.x + "," + d.y + ")"; })
+      .attr("r", 2);
+      // .attr("r", function(d, i) { return Math.sqrt(d.count); });
+
+}
+
+</script>
